@@ -13,8 +13,6 @@ name: ci
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
 
 # Concurrency lives in the CALLER, not the reusable workflow.
 # (Reusable can't define concurrency for its callers — each caller owns its own.)
