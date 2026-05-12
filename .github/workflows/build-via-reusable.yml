@@ -1,0 +1,54 @@
+# =============================================================================
+# This file lives in YOUR APP repo, e.g.:
+#   github.com/anjadubovina/gha-playground/.github/workflows/build-via-reusable.yml
+#
+# It calls the reusable workflow from the platform repo:
+#   github.com/anjadubovina/gha-platform/.github/workflows/reusable-go.yml@v1
+#
+# Compared to build.yml (standalone), this caller is ~15 lines instead of ~90.
+# That's the entire point of "golden path" — one `uses:` line per repo.
+# =============================================================================
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Concurrency lives in the CALLER, not the reusable workflow.
+# (Reusable can't define concurrency for its callers — each caller owns its own.)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Permissions cascade: the reusable workflow inherits these.
+# It cannot grant itself MORE than the caller declares.
+permissions:
+  contents: read
+
+jobs:
+  go-build:
+    # Replace 'anjadubovina/gha-platform' with your actual org/repo.
+    # Pin to a tag (@v1) or SHA — NEVER to @main in real banking-grade setups.
+    uses: koprivicaa/gha-platform/.github/workflows/reusable-go-build.yml@v2
+    with:
+      go-version: "1.23"
+      working-directory: "."
+      binary-name: "myapp"
+      run-lint: true
+      run-build: true
+    # secrets: inherit
+    #   ^^^ uncomment if reusable workflow needs caller's secrets (e.g. AWS_ROLE_ARN).
+    #   Prefer explicit pass-through over `inherit` for least-privilege:
+    # secrets:
+    #   AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+
+  # You can compose more jobs around the reusable one:
+  notify:
+    needs: go-build
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify on failure
+        run: echo "Build failed — would send Slack message here."
