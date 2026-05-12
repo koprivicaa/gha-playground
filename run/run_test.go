@@ -139,7 +139,7 @@ func TestWithRetry_RespectsCtxCancellation(t *testing.T) {
 
 	// With a cancelled ctx the backoff select should return ctx.Err()
 	// immediately, so the task should not be retried 5 times.
-	task(ctx)
+	_ = task(ctx)
 	if got := atomic.LoadInt64(&calls); got == 5 {
 		t.Fatalf("expected retry to abort early on cancelled ctx, but ran %d times", got)
 	}
