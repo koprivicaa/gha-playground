@@ -7,11 +7,6 @@ run "variables_follow_conventions" {
   }
 
   assert {
-    condition     = length(var.github_oidc_client_ids) > 0
-    error_message = "github_oidc_client_ids must contain at least one audience value."
-  }
-
-  assert {
     condition     = trim(var.github_oidc_audience, " ") != ""
     error_message = "github_oidc_audience must not be empty."
   }

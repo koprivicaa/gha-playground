@@ -10,12 +10,6 @@ variable "github_oidc_url" {
   default     = "https://token.actions.githubusercontent.com"
 }
 
-variable "github_oidc_client_ids" {
-  description = "Allowed client IDs (audiences) for the OIDC provider"
-  type        = list(string)
-  default     = ["sts.amazonaws.com"]
-}
-
 variable "github_oidc_audience" {
   description = "Audience claim required in GitHub OIDC token when assuming the role"
   type        = string
@@ -37,7 +31,7 @@ variable "github_branch" {
 variable "github_actions_role_name" {
   description = "Name of IAM role assumed by GitHub Actions"
   type        = string
-  default     = "gha-playground-main-role"
+  default     = "github-actions-role"
 }
 
 variable "github_actions_policy_name" {
@@ -53,12 +47,6 @@ variable "github_actions_allowed_actions" {
     "sts:GetCallerIdentity",
     "s3:ListAllMyBuckets",
   ]
-}
-
-variable "existing_github_actions_role_name" {
-  description = "Pre-existing IAM role name used by GitHub Actions workflows"
-  type        = string
-  default     = "github-actions-role"
 }
 
 variable "deploy_s3_bucket_name" {

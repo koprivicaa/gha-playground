@@ -12,7 +12,7 @@ data "tls_certificate" "github_actions" {
 resource "aws_iam_openid_connect_provider" "github" {
   url = var.github_oidc_url
 
-  client_id_list = var.github_oidc_client_ids
+  client_id_list = [var.github_oidc_audience]
 
   # Use the current SHA-1 fingerprint from GitHub's OIDC TLS certificate chain.
   thumbprint_list = [data.tls_certificate.github_actions.certificates[0].sha1_fingerprint]
@@ -73,8 +73,8 @@ data "aws_iam_policy_document" "deploy_upload_permissions" {
   }
 }
 
-resource "aws_iam_role_policy" "existing_github_actions_deploy_upload" {
+resource "aws_iam_role_policy" "github_actions_deploy_upload" {
   name   = "github-actions-deploy-upload"
-  role   = var.existing_github_actions_role_name
+  role   = aws_iam_role.github_actions.name
   policy = data.aws_iam_policy_document.deploy_upload_permissions.json
 }
