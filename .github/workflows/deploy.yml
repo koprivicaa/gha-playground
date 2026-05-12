@@ -29,5 +29,5 @@ jobs:
 
       - name: Upload file to S3
         run: |
-            echo "hello oidc" > demo.txt
-            aws s3 cp demo.txt s3://gha-playground-demo/demo.txt
+          echo "hello oidc" > demo.txt
+          aws s3 cp demo.txt s3://gha-playground-demo/demo.txt

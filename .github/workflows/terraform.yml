@@ -1,0 +1,54 @@
+name: terraform
+
+on:
+    push:
+        branches: [main]
+        paths:
+            - terraform/**
+            - .github/workflows/terraform.yml
+    pull_request:
+        branches: [main]
+        paths:
+            - terraform/**
+            - .github/workflows/terraform.yml
+
+permissions:
+    id-token: write
+    contents: read
+
+jobs:
+    validate-test:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: terraform
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup Terraform
+              uses: hashicorp/setup-terraform@v3
+
+            - name: Configure AWS credentials (OIDC)
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                  role-to-assume: arn:aws:iam::472506472772:role/github-actions-role
+                  aws-region: eu-central-1
+
+            - name: Verify AWS identity
+              run: aws sts get-caller-identity
+
+            - name: List S3 buckets
+              run: aws s3 ls
+
+            - name: Terraform init
+              run: terraform init -input=false
+
+            - name: Terraform fmt check
+              run: terraform fmt -check -recursive
+
+            - name: Terraform validate
+              run: terraform validate
+
+            - name: Terraform test
+              run: terraform test
