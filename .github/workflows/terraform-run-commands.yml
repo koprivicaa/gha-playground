@@ -52,8 +52,8 @@ env:
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
   # Hardcoded path to Terraform code (relative to repo root, no leading slash).
-  # Repo layout: gha-playground/terraform/aws-logging/terraform/*.tf
-  TF_DIRECTORY: "terraform/aws-logging/terraform"
+  # Repo layout: gha-playground/terraform/aws-logging/*.tf
+  TF_DIRECTORY: "terraform/aws-logging"
 
 jobs:
   # ---------------------------------------------------------------
