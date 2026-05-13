@@ -1,9 +1,9 @@
 resource "aws_s3_bucket" "cloudtrail" {
   bucket        = "${var.org_prefix}-cloudtrail-logs-${data.aws_caller_identity.current.account_id}"
-  force_destroy = false
+  force_destroy = var.cloudtrail_bucket_force_destroy
 
   tags = {
-    Name        = "cloudtrail-logs"
+    Name        = var.cloudtrail_bucket_tag_name
     Environment = var.environment
   }
 }
@@ -42,16 +42,16 @@ resource "aws_s3_bucket_lifecycle_configuration" "cloudtrail" {
     status = "Enabled"
 
     transition {
-      days          = 90
-      storage_class = "GLACIER"
+      days          = var.cloudtrail_lifecycle_transition_days
+      storage_class = var.cloudtrail_lifecycle_storage_class
     }
 
     expiration {
-      days = 2555  # 7 years — typical banking retention
+      days = var.cloudtrail_lifecycle_expiration_days
     }
 
     noncurrent_version_expiration {
-      noncurrent_days = 90
+      noncurrent_days = var.cloudtrail_lifecycle_noncurrent_expiration_days
     }
   }
 }
@@ -70,7 +70,7 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
         Resource  = aws_s3_bucket.cloudtrail.arn
         Condition = {
           StringEquals = {
-            "aws:SourceArn" = aws_cloudtrail.org_trail.arn
+            "aws:SourceArn" = aws_cloudtrail.cloudtrail.arn
           }
         }
       },
@@ -83,7 +83,7 @@ resource "aws_s3_bucket_policy" "cloudtrail" {
         Condition = {
           StringEquals = {
             "s3:x-amz-acl"  = "bucket-owner-full-control"
-            "aws:SourceArn" = aws_cloudtrail.org_trail.arn
+            "aws:SourceArn" = aws_cloudtrail.cloudtrail.arn
           }
         }
       },
