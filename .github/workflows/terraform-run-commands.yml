@@ -36,11 +36,6 @@ on:
           - plan
           - apply
           - destroy
-      tf_directory:
-        description: "Path to Terraform code (relative to repo root)"
-        type: string
-        required: false
-        default: "tf"
 
 # One run per (workflow, environment). Never cancel in-progress — TF state corruption risk.
 concurrency:
@@ -56,6 +51,9 @@ env:
   TF_VERSION: "1.9.8"
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
+  # Hardcoded path to Terraform code (relative to repo root, no leading slash).
+  # Repo layout: gha-playground/terraform/aws-logging/terraform/*.tf
+  TF_DIRECTORY: "terraform/aws-logging/terraform"
 
 jobs:
   # ---------------------------------------------------------------
@@ -75,15 +73,32 @@ jobs:
       - name: Check for Terraform directory
         id: check
         run: |
-          TF_DIR="${{ inputs.tf_directory }}"
-          if [ -d "$TF_DIR" ] && [ -n "$(ls -A "$TF_DIR"/*.tf 2>/dev/null)" ]; then
-            echo "tf_exists=true" >> "$GITHUB_OUTPUT"
-            echo "tf_dir=$TF_DIR" >> "$GITHUB_OUTPUT"
-            echo "✅ Found Terraform code in $TF_DIR/"
-          else
+          TF_DIR="$TF_DIRECTORY"
+          # strip any accidental leading ./ or /
+          TF_DIR="${TF_DIR#./}"
+          TF_DIR="${TF_DIR#/}"
+
+          echo "Looking for Terraform code in: $TF_DIR"
+          echo "Workspace: $GITHUB_WORKSPACE"
+          echo "Contents of workspace root:"
+          ls -la
+
+          if [ ! -d "$TF_DIR" ]; then
+            echo "⏭️  Directory $TF_DIR does not exist — skipping."
             echo "tf_exists=false" >> "$GITHUB_OUTPUT"
             echo "tf_dir=" >> "$GITHUB_OUTPUT"
-            echo "⏭️  No Terraform code found in $TF_DIR/ — skipping pipeline."
+            exit 0
+          fi
+
+          TF_FILES=$(find "$TF_DIR" -maxdepth 1 -name "*.tf" -type f | wc -l)
+          if [ "$TF_FILES" -gt 0 ]; then
+            echo "✅ Found $TF_FILES .tf file(s) in $TF_DIR/"
+            echo "tf_exists=true" >> "$GITHUB_OUTPUT"
+            echo "tf_dir=$TF_DIR" >> "$GITHUB_OUTPUT"
+          else
+            echo "⏭️  Directory $TF_DIR exists but has no .tf files — skipping."
+            echo "tf_exists=false" >> "$GITHUB_OUTPUT"
+            echo "tf_dir=" >> "$GITHUB_OUTPUT"
           fi
 
   # ---------------------------------------------------------------
