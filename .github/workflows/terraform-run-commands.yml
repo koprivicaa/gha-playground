@@ -1,0 +1,232 @@
+# ---------------------------------------------------------------
+# terraform.yml — manual Terraform pipeline
+#
+# Triggers ONLY on workflow_dispatch (manual run from Actions tab).
+# Runs init → fmt → validate → plan → apply, but ONLY if a `tf/`
+# directory exists at the repo root. Otherwise skips cleanly.
+#
+# Banking-grade features:
+#   - OIDC auth to AWS (no static keys)
+#   - Per-environment AWS role + S3 backend
+#   - Plan artifact saved + uploaded for review
+#   - Apply gated behind GitHub Environment (manual approval)
+#   - Concurrency control: one terraform run per env at a time
+#   - State locking via DynamoDB (configured in backend.tf)
+# ---------------------------------------------------------------
+name: Terraform
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        required: true
+        default: "dev"
+        options:
+          - dev
+          - staging
+          - prod
+      action:
+        description: "Terraform action"
+        type: choice
+        required: true
+        default: "plan"
+        options:
+          - plan
+          - apply
+          - destroy
+      tf_directory:
+        description: "Path to Terraform code (relative to repo root)"
+        type: string
+        required: false
+        default: "tf"
+
+# One run per (workflow, environment). Never cancel in-progress — TF state corruption risk.
+concurrency:
+  group: terraform-${{ inputs.environment }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write       # required for OIDC to AWS
+  pull-requests: write  # for posting plan summary if triggered from PR context
+
+env:
+  TF_VERSION: "1.9.8"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  # ---------------------------------------------------------------
+  # Gate job — checks that `tf/` folder actually exists.
+  # If missing, all downstream jobs skip cleanly.
+  # ---------------------------------------------------------------
+  detect:
+    name: Detect Terraform code
+    runs-on: ubuntu-latest
+    outputs:
+      tf_exists: ${{ steps.check.outputs.tf_exists }}
+      tf_dir: ${{ steps.check.outputs.tf_dir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for Terraform directory
+        id: check
+        run: |
+          TF_DIR="${{ inputs.tf_directory }}"
+          if [ -d "$TF_DIR" ] && [ -n "$(ls -A "$TF_DIR"/*.tf 2>/dev/null)" ]; then
+            echo "tf_exists=true" >> "$GITHUB_OUTPUT"
+            echo "tf_dir=$TF_DIR" >> "$GITHUB_OUTPUT"
+            echo "✅ Found Terraform code in $TF_DIR/"
+          else
+            echo "tf_exists=false" >> "$GITHUB_OUTPUT"
+            echo "tf_dir=" >> "$GITHUB_OUTPUT"
+            echo "⏭️  No Terraform code found in $TF_DIR/ — skipping pipeline."
+          fi
+
+  # ---------------------------------------------------------------
+  # Plan job — runs on every dispatch (action=plan or apply or destroy)
+  # ---------------------------------------------------------------
+  plan:
+    name: Terraform Plan (${{ inputs.environment }})
+    needs: detect
+    if: needs.detect.outputs.tf_exists == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}-plan
+    defaults:
+      run:
+        working-directory: ${{ needs.detect.outputs.tf_dir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-actions-terraform-${{ inputs.environment }}
+          role-session-name: gha-terraform-${{ inputs.environment }}-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=tfstate-${{ inputs.environment }}-${{ vars.AWS_ACCOUNT_ID }}" \
+            -backend-config="key=${{ github.repository }}/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="dynamodb_table=tfstate-lock-${{ inputs.environment }}" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform validate
+        run: terraform validate -no-color
+
+      - name: Select workspace
+        run: terraform workspace select ${{ inputs.environment }} || terraform workspace new ${{ inputs.environment }}
+
+      - name: Terraform plan
+        id: plan
+        run: |
+          set -o pipefail
+          if [ "${{ inputs.action }}" = "destroy" ]; then
+            terraform plan -destroy -no-color -out=tfplan.binary 2>&1 | tee plan.txt
+          else
+            terraform plan -no-color -out=tfplan.binary 2>&1 | tee plan.txt
+          fi
+          terraform show -no-color tfplan.binary > plan.txt
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ inputs.environment }}-${{ github.run_id }}
+          path: |
+            ${{ needs.detect.outputs.tf_dir }}/tfplan.binary
+            ${{ needs.detect.outputs.tf_dir }}/plan.txt
+          retention-days: 14
+
+      - name: Plan summary
+        run: |
+          {
+            echo "## Terraform Plan — \`${{ inputs.environment }}\`"
+            echo ""
+            echo "**Action:** \`${{ inputs.action }}\`"
+            echo "**Directory:** \`${{ needs.detect.outputs.tf_dir }}\`"
+            echo ""
+            echo '```hcl'
+            head -c 60000 plan.txt
+            echo ''
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------
+  # Apply job — only runs if action=apply or action=destroy.
+  # Gated behind the GitHub Environment for the target env, which
+  # requires manual approval from a designated reviewer team.
+  # ---------------------------------------------------------------
+  apply:
+    name: Terraform Apply (${{ inputs.environment }})
+    needs: [detect, plan]
+    if: |
+      needs.detect.outputs.tf_exists == 'true' &&
+      (inputs.action == 'apply' || inputs.action == 'destroy')
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}   # ← required reviewers configured in repo settings
+    defaults:
+      run:
+        working-directory: ${{ needs.detect.outputs.tf_dir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-actions-terraform-${{ inputs.environment }}
+          role-session-name: gha-terraform-apply-${{ inputs.environment }}-${{ github.run_id }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-${{ inputs.environment }}-${{ github.run_id }}
+          path: ${{ needs.detect.outputs.tf_dir }}
+
+      - name: Terraform init (re-init for apply runner)
+        run: |
+          terraform init \
+            -backend-config="bucket=tfstate-${{ inputs.environment }}-${{ vars.AWS_ACCOUNT_ID }}" \
+            -backend-config="key=${{ github.repository }}/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="dynamodb_table=tfstate-lock-${{ inputs.environment }}" \
+            -backend-config="encrypt=true"
+
+      - name: Select workspace
+        run: terraform workspace select ${{ inputs.environment }}
+
+      - name: Terraform apply
+        run: terraform apply -no-color -auto-approve tfplan.binary
+
+      - name: Apply summary
+        if: always()
+        run: |
+          {
+            echo "## Terraform Apply — \`${{ inputs.environment }}\`"
+            echo ""
+            echo "**Status:** ${{ job.status }}"
+            echo "**Action:** \`${{ inputs.action }}\`"
+            echo "**Triggered by:** @${{ github.actor }}"
+            echo "**Run:** [#${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> "$GITHUB_STEP_SUMMARY"
