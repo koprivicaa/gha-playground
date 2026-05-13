@@ -44,8 +44,8 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write       # required for OIDC to AWS
-  pull-requests: write  # for posting plan summary if triggered from PR context
+  id-token: write # required for OIDC to AWS
+  pull-requests: write # for posting plan summary if triggered from PR context
 
 env:
   TF_VERSION: "1.9.8"
@@ -67,7 +67,8 @@ jobs:
       tf_exists: ${{ steps.check.outputs.tf_exists }}
       tf_dir: ${{ steps.check.outputs.tf_dir }}
     steps:
-      - name: Checkout
+      - &checkout_step
+        name: Checkout
         uses: actions/checkout@v4
 
       - name: Check for Terraform directory
@@ -114,17 +115,18 @@ jobs:
       run:
         working-directory: ${{ needs.detect.outputs.tf_dir }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - *checkout_step
 
-      - name: Configure AWS credentials via OIDC
+      - &aws_oidc_step
+        name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-actions-terraform-${{ inputs.environment }}
-          role-session-name: gha-terraform-${{ inputs.environment }}-${{ github.run_id }}
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-actions-role
+          role-session-name: gha-terraform-${{ github.job }}-${{ inputs.environment }}-${{ github.run_id }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Setup Terraform
+      - &setup_terraform_step
+        name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform fmt check
@@ -191,23 +193,16 @@ jobs:
       needs.detect.outputs.tf_exists == 'true' &&
       (inputs.action == 'apply' || inputs.action == 'destroy')
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}   # ← required reviewers configured in repo settings
+    environment: ${{ inputs.environment }} # ← required reviewers configured in repo settings
     defaults:
       run:
         working-directory: ${{ needs.detect.outputs.tf_dir }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - *checkout_step
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/github-actions-role
-          role-session-name: gha-terraform-apply-${{ inputs.environment }}-${{ github.run_id }}
-          aws-region: ${{ vars.AWS_REGION }}
+      - *aws_oidc_step
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+      - *setup_terraform_step
 
       - name: Download plan artifact
         uses: actions/download-artifact@v4
