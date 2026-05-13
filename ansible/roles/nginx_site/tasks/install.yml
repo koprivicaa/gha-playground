@@ -1,0 +1,47 @@
+- name: Install nginx on Debian/Ubuntu
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Install nginx on RedHat
+  ansible.builtin.dnf:
+    name: nginx
+    state: present
+  become: true
+  when: ansible_os_family == "RedHat"
+
+- name: Check whether Homebrew is installed
+  ansible.builtin.command: command -v brew
+  register: brew_path_check
+  changed_when: false
+  failed_when: false
+  become: false
+  when: ansible_os_family == "Darwin"
+
+- name: Check whether nginx is installed via Homebrew
+  ansible.builtin.command: brew list nginx
+  register: brew_nginx_check
+  changed_when: false
+  failed_when: false
+  become: false
+  when:
+    - ansible_os_family == "Darwin"
+    - brew_path_check.rc == 0
+
+- name: Skip nginx install on macOS when Homebrew is missing
+  ansible.builtin.debug:
+    msg: "Homebrew is not installed; skipping nginx package install on macOS local validation host."
+  when:
+    - ansible_os_family == "Darwin"
+    - brew_path_check.rc != 0
+
+- name: Install nginx via Homebrew on macOS
+  ansible.builtin.command: brew install nginx
+  become: false
+  when:
+    - ansible_os_family == "Darwin"
+    - brew_path_check.rc == 0
+    - brew_nginx_check.rc != 0

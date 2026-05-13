@@ -1,0 +1,16 @@
+---
+# Main tasks for nginx_site role
+- import_tasks: install.yml
+- import_tasks: config.yml
+  when: ansible_os_family != "Darwin"
+- import_tasks: enable.yml
+  when: ansible_os_family != "Darwin"
+- import_tasks: validate.yml
+  when: ansible_os_family != "Darwin"
+- import_tasks: reload.yml
+  when: ansible_os_family != "Darwin"
+
+- name: Skip Linux-specific nginx site tasks on macOS
+  ansible.builtin.debug:
+    msg: "Skipping /etc/nginx site config tasks on macOS local validation host."
+  when: ansible_os_family == "Darwin"

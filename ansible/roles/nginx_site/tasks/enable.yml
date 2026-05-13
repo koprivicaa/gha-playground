@@ -1,0 +1,8 @@
+- name: Enable site via symlink (Debian only)
+  file:
+    src: "/etc/nginx/sites-available/{{ site_name }}.conf"
+    dest: "/etc/nginx/sites-enabled/{{ site_name }}.conf"
+    state: link
+  become: true
+  notify: reload nginx
+  when: ansible_facts['os_family'] == 'Debian'

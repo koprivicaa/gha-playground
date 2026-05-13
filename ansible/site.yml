@@ -1,0 +1,13 @@
+---
+- name: Deploy Nginx site using nginx_site role
+  hosts: "{{ target_group | default('webservers') }}"
+  become: true
+
+  vars:
+    site_name: myapp
+    site_port: 80
+    site_root: "/var/www/myapp"
+    site_server_name: myapp.local
+
+  roles:
+    - nginx_site
