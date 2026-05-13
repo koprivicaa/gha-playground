@@ -1,0 +1,6 @@
+---
+# Default variables for nginx_site role
+site_name: default
+site_port: 80
+site_root: "/var/www/{{ site_name }}"
+site_server_name: _

@@ -1,0 +1,28 @@
+---
+plugin: amazon.aws.aws_ec2
+regions:
+  - eu-central-1
+
+# Only running EC2 instances tagged Name=test are targeted.
+filters:
+  instance-state-name: running
+  "tag:Name": test
+
+# Keep playbook compatibility: hosts: webservers
+groups:
+  webservers: tags.Name is defined and tags.Name == 'test'
+
+hostnames:
+  - ip-address
+  - dns-name
+  - private-ip-address
+
+compose:
+  ansible_user: "'ec2-user'"
+  ansible_ssh_private_key_file: "'~/.ssh/gha_playground_ec2'"
+
+keyed_groups:
+  - key: tags.Environment
+    prefix: env
+
+strict: false
